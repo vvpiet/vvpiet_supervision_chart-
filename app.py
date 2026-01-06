@@ -483,7 +483,8 @@ with col2:
             st.error(f"SMTP test failed: {e}")
 
 st.subheader("Blocks / Session Settings")
-    blocks = st.number_input("Number of blocks (per day)", min_value=1, max_value=20, value=2)
+blocks = st.number_input("Number of blocks (per day)", min_value=1, max_value=20, value=2, help="Allowed range: 1 to 20 blocks per day")
+st.caption("Tip: set blocks up to 20 if required; higher values increase the number of supervisors per session.")
 
 special_blocks = {}
 if exam_type == "Supplementary":
