@@ -410,23 +410,6 @@ else:
 
 st.sidebar.write(f"Loaded {len(staff_df)} supervisors")
 st.sidebar.info("Uploaded staff CSV is persisted to the app storage as 'staff_uploaded.csv' and attendance is auto-saved to 'attendance_state.json' so refresh won't lose data.")
-def _get_git_commit_short():
-    try:
-        out = subprocess.check_output([sys.executable, '-m', 'git', 'rev-parse', '--short', 'HEAD'], stderr=subprocess.DEVNULL)
-        return out.decode().strip()
-    except Exception:
-        try:
-            out = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'], stderr=subprocess.DEVNULL)
-            return out.decode().strip()
-        except Exception:
-            return None
-
-# Show deployed commit (if available) to help verify the running version
-commit_short = _get_git_commit_short()
-if commit_short:
-    st.sidebar.write(f"Deployed commit: {commit_short}")
-else:
-    st.sidebar.write("Deployed commit: (unknown)")
 if st.sidebar.button("Clear persisted schedule"):
     try:
         if os.path.exists('schedule_state.json'):
@@ -471,7 +454,6 @@ with col1:
     exam_type = st.selectbox("Exam Type", ["Regular", "Supplementary"])
 with col2:
     exclude_weekends = st.checkbox("Skip Sundays only", value=True, help="When checked, exam dates will skip Sundays only (Saturday will be included).")
-    st.caption("Current behavior: when checked, only Sundays are skipped. If you still see 'Exclude Sat/Sun' in the UI, the deployed app may be an older commit — check 'Deployed commit' in the sidebar and redeploy/restart the app.")
     holiday_text = st.text_area("Holidays (comma separated YYYY-MM-DD)", help="Enter dates separated by commas")
     try:
         holidays = [datetime.datetime.strptime(d.strip(), "%Y-%m-%d").date() for d in holiday_text.split(",") if d.strip()]
@@ -501,7 +483,7 @@ with col2:
             st.error(f"SMTP test failed: {e}")
 
 st.subheader("Blocks / Session Settings")
-blocks = st.number_input("Number of blocks (per day)", min_value=1, max_value=10, value=2)
+    blocks = st.number_input("Number of blocks (per day)", min_value=1, max_value=20, value=2)
 
 special_blocks = {}
 if exam_type == "Supplementary":
