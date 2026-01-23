@@ -482,20 +482,145 @@ with col2:
         except Exception as e:
             st.error(f"SMTP test failed: {e}")
 
-st.subheader("Blocks / Session Settings")
-blocks = st.number_input("Number of blocks (per day)", min_value=1, max_value=20, value=2, help="Allowed range: 1 to 20 blocks per day")
-st.caption("Tip: set blocks up to 20 if required; higher values increase the number of supervisors per session.")
+st.markdown("---")
+st.subheader("Week-wise Day-wise Block Configuration")
+st.info("Configure the number of blocks for each day in each week of the exam period.")
 
+# Calculate exam dates and organize by weeks
+try:
+    exam_dates = generate_exam_dates(start_date, end_date, exclude_weekends, holidays)
+    
+    if len(exam_dates) == 0:
+        st.warning("No exam dates found. Please check your date range and holiday settings.")
+        day_blocks = {}
+    else:
+        # Organize exam dates by weeks
+        # A week starts on Monday (weekday 0)
+        day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        
+        # Group dates by ISO calendar week
+        weeks_dict = {}  # Format: {(year, week_number): [list of dates in that week]}
+        for d in exam_dates:
+            iso_year, iso_week, iso_weekday = d.isocalendar()
+            week_key = (iso_year, iso_week)
+            if week_key not in weeks_dict:
+                weeks_dict[week_key] = []
+            weeks_dict[week_key].append(d)
+        
+        # Sort weeks chronologically
+        sorted_weeks = sorted(weeks_dict.items())
+        
+        # Display summary
+        st.markdown("### Exam Period Summary")
+        st.markdown(f"**Total Exam Days:** {len(exam_dates)} | **Total Weeks:** {len(sorted_weeks)} | **Date Range:** {start_date.strftime('%b %d, %Y')} to {end_date.strftime('%b %d, %Y')}")
+        if exclude_weekends:
+            st.caption("ℹ️ Sundays are excluded from the exam period")
+        if holidays:
+            st.caption(f"ℹ️ {len(holidays)} holiday(s) excluded from exam period")
+        
+        st.markdown("---")
+        
+        # Create week-wise configuration
+        day_blocks = {}
+        
+        for week_idx, (week_key, week_dates) in enumerate(sorted_weeks, 1):
+            iso_year, iso_week = week_key
+            week_start = min(week_dates)
+            week_end = max(week_dates)
+            
+            st.markdown(f"### Week {week_idx} ({week_start.strftime('%b %d')} - {week_end.strftime('%b %d, %Y')})")
+            
+            # Count which days are in this week
+            week_day_count = {day: 0 for day in day_names}
+            for d in week_dates:
+                day_name = day_names[d.weekday()]
+                week_day_count[day_name] += 1
+            
+            # Show metrics for days present in this week
+            summary_cols = st.columns(min(6, sum(1 for c in week_day_count.values() if c > 0)))
+            col_idx = 0
+            for day in day_names[:6]:  # Only Monday-Saturday
+                if week_day_count[day] > 0:
+                    with summary_cols[col_idx]:
+                        st.metric(label=day, value=f"{week_day_count[day]} day(s)")
+                    col_idx += 1
+            
+            # Input fields for this week's days
+            st.markdown(f"**Set blocks for Week {week_idx}:**")
+            week_cols = st.columns(2)
+            col_idx = 0
+            
+            for day in day_names[:6]:  # Only Monday-Saturday
+                if week_day_count[day] > 0:
+                    with week_cols[col_idx % 2]:
+                        st.markdown(f"**{day}**")
+                        morning_val = st.number_input(
+                            f"Morning blocks", 
+                            min_value=1, 
+                            max_value=20, 
+                            value=2,
+                            key=f"week_{week_idx}_{day}_morning"
+                        )
+                        evening_val = st.number_input(
+                            f"Evening blocks", 
+                            min_value=1, 
+                            max_value=20, 
+                            value=2,
+                            key=f"week_{week_idx}_{day}_evening"
+                        )
+                        # Store with week prefix so different weeks can have different configs
+                        day_blocks[f"week_{week_idx}_{day}"] = {
+                            "morning": morning_val,
+                            "evening": evening_val,
+                            "week_number": week_idx
+                        }
+                    col_idx += 1
+            
+            st.markdown("---")
+
+except Exception as e:
+    st.error(f"Unable to calculate exam dates: {e}")
+    exam_dates = []
+    day_blocks = {}
+
+st.caption("📝 The supervision chart will be generated based on these week-wise day-wise configurations for your exam period.")
+
+# Special blocks: per-date overrides (only for Supplementary exams)
 special_blocks = {}
+special_date_session_blocks = {}  # Format: {date: {"morning": blocks, "evening": blocks}}
+
 if exam_type == "Supplementary":
-    st.info("You can define specific dates with different number of blocks.")
-    special_input = st.text_area("Special dates with blocks (format YYYY-MM-DD:blocks, one per line)")
+    st.markdown("---")
+    st.info("Optionally define specific dates that override the day-wise configuration.")
+    st.markdown("**Option 1: Simple (same blocks for both sessions on a date)**")
+    st.caption("Format: YYYY-MM-DD:blocks (one per line) - applies same block count to both Morning and Evening")
+    special_input = st.text_area("Special dates with blocks (format YYYY-MM-DD:blocks)", height=100, key="special_blocks_simple")
     for line in special_input.splitlines():
         if ":" in line:
             d, b = line.split(":")
             try:
                 sd = datetime.datetime.strptime(d.strip(), "%Y-%m-%d").date()
                 special_blocks[sd] = int(b.strip())
+            except Exception:
+                pass
+    
+    st.markdown("**Option 2: Detailed (different blocks for Morning and Evening)**")
+    st.caption("Format: YYYY-MM-DD:Morning:blocks,Evening:blocks (one per line) - Example: 2026-01-22:Morning:3,Evening:2")
+    detailed_input = st.text_area("Special dates with session-wise blocks", height=120, key="special_blocks_detailed")
+    for line in detailed_input.splitlines():
+        if ":" in line and "Morning" in line and "Evening" in line:
+            parts = line.split(":")
+            try:
+                sd = datetime.datetime.strptime(parts[0].strip(), "%Y-%m-%d").date()
+                # Parse Morning:blocks and Evening:blocks
+                session_data = {}
+                for i in range(1, len(parts), 2):
+                    session_name = parts[i].strip().lower()
+                    if i + 1 < len(parts):
+                        block_count = int(parts[i+1].strip().rstrip(','))
+                        session_data[session_name] = block_count
+                if session_data:
+                    special_date_session_blocks[sd] = session_data
             except Exception:
                 pass
 
@@ -577,15 +702,33 @@ if 'schedule_df' not in st.session_state:
 
 if st.button("Generate Schedule"):
     exam_dates = generate_exam_dates(start_date, end_date, exclude_weekends, holidays)
-    schedule_df = generate_schedule(exam_dates, blocks, special_blocks, staff_df)
+    
+    # Merge special_blocks (simple format) and special_date_session_blocks (detailed format)
+    merged_special_blocks = special_blocks.copy()
+    
+    # Generate schedule based on day-wise block configuration
+    # day_blocks: per-day per-session blocks (Monday morning: 2, Monday evening: 2, etc.)
+    # special_blocks: per-date same-count overrides (optional, for Supplementary only)
+    # date_session_blocks: per-date per-session overrides (optional, for Supplementary only)
+    schedule_df = generate_schedule(
+        exam_dates, 
+        default_blocks=2,  # Fallback if no other config applies
+        special_blocks=merged_special_blocks,    # Simple date overrides (both sessions)
+        staff_df=staff_df,
+        session_blocks=None,  # Not used in day-wise only mode
+        day_blocks=day_blocks if day_blocks else None,  # Day-of-week per-session blocks
+        date_session_blocks=special_date_session_blocks  # Per-date per-session overrides
+    )
+    
     st.session_state["schedule_df"] = schedule_df
     # Persist schedule and basic metadata to disk so it can be loaded on refresh
     meta = {
         'start_date': start_date.isoformat() if isinstance(start_date, (datetime.date, datetime.datetime)) else str(start_date),
         'end_date': end_date.isoformat() if isinstance(end_date, (datetime.date, datetime.datetime)) else str(end_date),
-        'blocks': blocks,
         'exam_type': exam_type,
-        'special_blocks': {d.isoformat(): b for d, b in special_blocks.items()} if special_blocks else {}
+        'day_blocks': day_blocks if day_blocks else {},
+        'special_blocks': {d.isoformat(): b for d, b in special_blocks.items()} if special_blocks else {},
+        'special_date_session_blocks': {d.isoformat(): session_config for d, session_config in special_date_session_blocks.items()} if special_date_session_blocks else {}
     }
     save_schedule_state(schedule_df, meta)
     # Mark session as freshly generated (so badge shows)
@@ -598,7 +741,7 @@ if st.button("Generate Schedule"):
             json.dump(meta, mf, ensure_ascii=False)
     except Exception:
         pass
-    st.success("Schedule generated and cached in session.")
+    st.success("Schedule generated with day and session-wise block configuration and cached in session.")
 
 if "schedule_df" in st.session_state:
     # Validate and normalize schedule before preview to avoid duplicate-column or missing-column errors
@@ -679,7 +822,7 @@ if "schedule_df" in st.session_state:
     excel_bytes = schedule_to_excel_bytes(st.session_state["schedule_df"])
     if excel_bytes is not None:
         filename = f"Schedule_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.xlsx"
-        st.download_button("Download Schedule (Excel)", data=excel_bytes, file_name=filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.download_button("Download Schedule (Excel)", data=excel_bytes, file_name=filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="download_schedule_excel")
     # Also provide a horizontal format: rows are supervisors, columns are date-session pairs
     def schedule_to_excel_horizontal(schedule_df):
         from openpyxl import Workbook
@@ -738,7 +881,7 @@ if "schedule_df" in st.session_state:
         horiz_bytes = schedule_to_excel_horizontal(safe_df)
         if horiz_bytes is not None:
             filename2 = f"Schedule_Horizontal_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.xlsx"
-            st.download_button("Download Schedule (Horizontal Excel)", data=horiz_bytes, file_name=filename2, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button("Download Schedule (Horizontal Excel)", data=horiz_bytes, file_name=filename2, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="download_schedule_horizontal")
 else:
     st.info("Generate a schedule to preview assignments.")
 
@@ -817,7 +960,7 @@ if st.button("Generate & Download PDF for selected"):
                         for exe, rc, out in install_output:
                             st.write(f"Attempt with {exe} returned code {rc}. Output:\n{out}")
 
-            for name in sel:
+            for idx, name in enumerate(sel):
                 # Use compatibility wrapper to avoid errors if deployed pdf_utils has fewer optional args
                 pdf_bytes = _call_pdf_compat(generate_duty_pdf, name, schedule_df, staff_df, start_date, end_date, exam_type, college_logo_bytes, uni_logo_bytes, sign_bytes)
                 # Validate PDF has pages before appending
@@ -834,12 +977,12 @@ if st.button("Generate & Download PDF for selected"):
                 if not valid:
                     st.warning(f"Generated PDF for {name} appears empty; skipping in combined output.")
                     # Still offer individual download so user can inspect
-                    st.download_button(f"Download duty order for {name} (may be empty)", data=pdf_bytes, file_name=f"Duty_{name}.pdf", mime="application/pdf")
+                    st.download_button(f"Download duty order for {name} (may be empty)", data=pdf_bytes, file_name=f"Duty_{name}.pdf", mime="application/pdf", key=f"download_empty_{idx}_{name}")
                     continue
 
                 pdfs.append(pdf_bytes)
                 # Offer individual download
-                st.download_button(f"Download duty order for {name}", data=pdf_bytes, file_name=f"Duty_{name}.pdf", mime="application/pdf")
+                st.download_button(f"Download duty order for {name}", data=pdf_bytes, file_name=f"Duty_{name}.pdf", mime="application/pdf", key=f"download_{idx}_{name}")
             # If more than one selected then offer combined single PDF
             if len(pdfs) > 1:
                 # Prefer direct combined PDF generator (avoids external mergers)
@@ -862,7 +1005,7 @@ if st.button("Generate & Download PDF for selected"):
                         page_count = len(reader.pages)
                     except Exception:
                         page_count = None
-                    st.download_button("Download combined PDF for selected", data=combined, file_name="Combined_Duty_Allotments.pdf", mime="application/pdf")
+                    st.download_button("Download combined PDF for selected", data=combined, file_name="Combined_Duty_Allotments.pdf", mime="application/pdf", key="download_combined_pdf")
                     if page_count is not None:
                         st.info(f"Combined PDF contains {page_count} pages (one or more pages per faculty as required).")
                         if page_count < len(pdfs):
@@ -970,8 +1113,8 @@ if "schedule_df" in st.session_state:
             st.markdown("**Morning (10.00 a.m. to 01.00 p.m.)**")
             present_m = []
             # show checkbox per assigned supervisor
-            for name in sorted(morning_assigned):
-                safe_key = f"att_{d.strftime('%Y%m%d')}_m_{name.replace(' ', '_')}"
+            for idx, name in enumerate(sorted(morning_assigned)):
+                safe_key = f"att_{d.strftime('%Y%m%d')}_m_{idx}_{name.replace(' ', '_')}"
                 prev = False
                 prev_info = st.session_state.get("attendance", {}).get(d.strftime("%Y-%m-%d"), {})
                 if prev_info:
@@ -982,8 +1125,8 @@ if "schedule_df" in st.session_state:
         with col2:
             st.markdown("**Evening (02.00 p.m. to 05.00 p.m.)**")
             present_e = []
-            for name in sorted(evening_assigned):
-                safe_key = f"att_{d.strftime('%Y%m%d')}_e_{name.replace(' ', '_')}"
+            for idx, name in enumerate(sorted(evening_assigned)):
+                safe_key = f"att_{d.strftime('%Y%m%d')}_e_{idx}_{name.replace(' ', '_')}"
                 prev = False
                 prev_info = st.session_state.get("attendance", {}).get(d.strftime("%Y-%m-%d"), {})
                 if prev_info:
@@ -1069,7 +1212,7 @@ if "schedule_df" in st.session_state:
                             f.write(memo_pdf)
                     except Exception:
                         pass
-                    st.download_button(f"Download memo for {name} ({date_str})", data=memo_pdf, file_name=fname, mime="application/pdf")
+                    st.download_button(f"Download memo for {name} ({date_str})", data=memo_pdf, file_name=fname, mime="application/pdf", key=f"download_memo_{date_str}_{name.replace(' ', '_')}")
                     generated += 1
 
                 # Persist attendance state and notify
@@ -1173,9 +1316,7 @@ if "schedule_df" in st.session_state:
             return bio.read()
 
         consolidated_bytes = consolidated_attendance_excel_bytes(st.session_state['attendance'])
-        st.download_button("Download consolidated attendance (Excel)", data=consolidated_bytes, file_name="Consolidated_Attendance.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-    # Show option to generate memos for absentees
+        st.download_button("Download consolidated attendance (Excel)", data=consolidated_bytes, file_name="Consolidated_Attendance.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="download_consolidated_attendance")
     st.markdown("---")
     st.subheader("Absence Memos")
     memo_subject = st.text_input("Memo email subject", value=st.session_state.get("memo_subject", "Absence from invigilation duty"))
@@ -1213,7 +1354,7 @@ if "schedule_df" in st.session_state:
                     memo_pdf = _call_memo_compat(generate_absence_memo, name, absences, staff_df, None, None, sign_bytes)
                 except Exception:
                     memo_pdf = None
-            st.download_button(f"Download memo for {name}", data=memo_pdf, file_name=f"Memo_{name}.pdf", mime="application/pdf")
+            st.download_button(f"Download memo for {name}", data=memo_pdf, file_name=f"Memo_{name}.pdf", mime="application/pdf", key=f"download_bulk_memo_{name.replace(' ', '_')}")
 
         memo_send_emails = st.multiselect("Select absentees to email memos", options=list(st.session_state["absentee_map"].keys()))
         memo_subject_input = st.text_input("Memo email subject (for sending)", value=memo_subject)
