@@ -557,14 +557,14 @@ try:
                         morning_val = st.number_input(
                             f"Morning blocks", 
                             min_value=1, 
-                            max_value=20, 
+                            max_value=30, 
                             value=2,
                             key=f"week_{week_idx}_{day}_morning"
                         )
                         evening_val = st.number_input(
                             f"Evening blocks", 
                             min_value=1, 
-                            max_value=20, 
+                            max_value=30, 
                             value=2,
                             key=f"week_{week_idx}_{day}_evening"
                         )
