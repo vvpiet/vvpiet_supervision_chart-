@@ -556,20 +556,20 @@ try:
                         st.markdown(f"**{day}**")
                         morning_val = st.number_input(
                             f"Morning blocks", 
-                            min_value=1, 
+                            min_value=0, 
                             max_value=30, 
                             value=2,
-                            key=f"week_{week_idx}_{day}_morning"
+                            key=f"week_{iso_week}_{day}_morning"
                         )
                         evening_val = st.number_input(
                             f"Evening blocks", 
-                            min_value=1, 
+                            min_value=0, 
                             max_value=30, 
                             value=2,
-                            key=f"week_{week_idx}_{day}_evening"
+                            key=f"week_{iso_week}_{day}_evening"
                         )
-                        # Store with week prefix so different weeks can have different configs
-                        day_blocks[f"week_{week_idx}_{day}"] = {
+                        # Store with ISO week number so it matches scheduler logic
+                        day_blocks[f"week_{iso_week}_{day}"] = {
                             "morning": morning_val,
                             "evening": evening_val,
                             "week_number": week_idx

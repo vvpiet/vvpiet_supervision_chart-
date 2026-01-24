@@ -76,7 +76,8 @@ def generate_schedule(dates: List[datetime.date], default_blocks: int, special_b
                 blocks = date_session_blocks[d][session.lower()]
             
             extras = 1 if blocks == 1 else 2
-            count = blocks + extras
+            # If blocks is 0, count should be 0 (no supervisors needed)
+            count = blocks + extras if blocks > 0 else 0
             
             if session == "Morning":
                 morning_total += count
@@ -113,7 +114,8 @@ def generate_schedule(dates: List[datetime.date], default_blocks: int, special_b
                 blocks = date_session_blocks[d][session.lower()]
             
             extras = 1 if blocks == 1 else 2
-            count = blocks + extras
+            # If blocks is 0, count should be 0 (no supervisors needed)
+            count = blocks + extras if blocks > 0 else 0
             
             assignments.append((d, session, count))
     
